@@ -13,8 +13,7 @@
 (def ^{:private true} stream-to-string
      (ns-resolve 'clojure.java.shell 'stream-to-string))
 
-(defn sh*
-  [& args]
+(defn sh* [& args]
   (let [[cmd opts] (parse-args args)
         proc (.exec (Runtime/getRuntime) 
 		    ^"[Ljava.lang.String;" (into-array cmd) 
@@ -51,7 +50,7 @@
                     :err @err})))}))
 
 
-(defn sh [& args]
+(defn sh
   "Passes the given strings to Runtime.exec() to launch a sub-process.
 
   Options are
@@ -93,4 +92,5 @@
     :exit => sub-process's exit code
     :out  => sub-process's stdout (as byte[] or String)
     :err  => sub-process's stderr (String via platform default encoding)"
+  [& args]
   @(:result (apply sh* args)))
