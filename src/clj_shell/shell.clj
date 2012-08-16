@@ -2,7 +2,7 @@
   clj-shell.shell
   (:use [clojure.java.io :only (as-file copy input-stream)])
   (:require clojure.java.shell)
-  (:import (java.io OutputStreamWriter ByteArrayOutputStream StringWriter)))
+  (:import (java.io OutputStreamWriter)))
 
 (def ^{:private true} parse-args
      (ns-resolve 'clojure.java.shell 'parse-args))
@@ -13,7 +13,45 @@
 (def ^{:private true} stream-to-string
      (ns-resolve 'clojure.java.shell 'stream-to-string))
 
-(defn sh
+(defn sh*
+  [& args]
+  (let [[cmd opts] (parse-args args)
+        proc (.exec (Runtime/getRuntime) 
+		    ^"[Ljava.lang.String;" (into-array cmd) 
+		    (as-env-strings (:env opts))
+		    (as-file (:dir opts)))
+        {:keys [in in-enc out-enc out-fn err-fn]} opts]
+    (if in
+      (future
+        (cond
+         (string? in)
+         (with-open [osw (OutputStreamWriter. (.getOutputStream proc) ^String in-enc)]
+           (.write osw ^String in))
+         (instance? (class (byte-array 0)) in)   
+         (with-open [os (.getOutputStream proc)]
+           (.write os ^"[B" in))
+         :else
+         (with-open [os (.getOutputStream proc)
+                     is (input-stream in)]
+           (copy is os))))
+      (.close (.getOutputStream proc)))
+    {:proc proc
+     :result (future
+               (with-open [stdout (.getInputStream proc)
+                           stderr (.getErrorStream proc)]
+                 (let [out (future (if (fn? out-fn)
+                                     (out-fn stdout)
+                                     (stream-to-enc stdout out-enc)))
+                       err (future (if (fn? err-fn)
+                                     (err-fn stderr)
+                                     (stream-to-string stderr)))
+                       exit (.waitFor proc)]
+                   {:exit exit
+                    :out @out
+                    :err @err})))}))
+
+
+(defn sh [& args]
   "Passes the given strings to Runtime.exec() to launch a sub-process.
 
   Options are
@@ -55,35 +93,4 @@
     :exit => sub-process's exit code
     :out  => sub-process's stdout (as byte[] or String)
     :err  => sub-process's stderr (String via platform default encoding)"
-  {:added "1.2"}
-  [& args]
-  (let [[cmd opts] (parse-args args)
-        proc (.exec (Runtime/getRuntime) 
-		    ^"[Ljava.lang.String;" (into-array cmd) 
-		    (as-env-strings (:env opts))
-		    (as-file (:dir opts)))
-        {:keys [in in-enc out-enc out-fn err-fn]} opts]
-    (if in
-      (future
-       (cond
-        (string? in)
-         (with-open [osw (OutputStreamWriter. (.getOutputStream proc) ^String in-enc)]
-           (.write osw ^String in))
-        (instance? (class (byte-array 0)) in)   
-         (with-open [os (.getOutputStream proc)]
-           (.write os ^"[B" in))
-        :else
-          (with-open [os (.getOutputStream proc)
-                      is (input-stream in)]
-           (copy is os))))
-      (.close (.getOutputStream proc)))
-    (with-open [stdout (.getInputStream proc)
-                stderr (.getErrorStream proc)]
-      (let [out (future (if (fn? out-fn)
-                          (out-fn stdout)
-                          (stream-to-enc stdout out-enc)))
-            err (future (if (fn? err-fn)
-                          (err-fn stderr)
-                          (stream-to-string stderr)))
-            exit-code (.waitFor proc)]
-        {:exit exit-code :out @out :err @err}))))
+  @(:result (apply sh* args)))
