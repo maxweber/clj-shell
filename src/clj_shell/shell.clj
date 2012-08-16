@@ -34,7 +34,7 @@
                      is (input-stream in)]
            (copy is os))))
       (.close (.getOutputStream proc)))
-    {:proc proc
+    {:process proc
      :result (future
                (with-open [stdout (.getInputStream proc)
                            stderr (.getErrorStream proc)]
